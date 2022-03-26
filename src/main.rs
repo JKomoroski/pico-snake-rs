@@ -7,7 +7,7 @@
 use cortex_m_rt::entry;
 use defmt::*;
 use defmt_rtt as _;
-use embedded_hal::digital::v2::OutputPin;
+use embedded_hal::digital::v2::{OutputPin, StatefulOutputPin};
 use embedded_time::fixed_point::FixedPoint;
 use panic_probe as _;
 
@@ -22,6 +22,8 @@ use bsp::hal::{
     sio::Sio,
     watchdog::Watchdog,
 };
+//use rp_pico::hal::gpio::Pin;
+use rp_pico::Gp9Pwm4B;
 
 #[entry]
 fn main() -> ! {
@@ -55,14 +57,39 @@ fn main() -> ! {
     );
 
     let mut led_pin = pins.led.into_push_pull_output();
+    //let mut r_pin: Gp9Pwm4B = pins.gpio9.into_mode();
+    let mut r_pin = pins.gpio6.into_push_pull_output();
+    let mut g_pin = pins.gpio7.into_push_pull_output();
+    let mut b_pin = pins.gpio8.into_push_pull_output();
+
+    r_pin.set_low().unwrap();
+    g_pin.set_high().unwrap();
+    b_pin.set_high().unwrap();
 
     loop {
+        if r_pin.is_set_low().unwrap() {
+
+            g_pin.set_low().unwrap();
+            r_pin.set_high().unwrap();
+
+        } else if g_pin.is_set_low().unwrap() {
+
+            b_pin.set_low().unwrap();
+            g_pin.set_high().unwrap();
+
+        } else if b_pin.is_set_low().unwrap() {
+
+            r_pin.set_low().unwrap();
+            b_pin.set_high().unwrap();
+
+        }
+
         info!("on!");
         led_pin.set_high().unwrap();
-        delay.delay_ms(500);
+        delay.delay_ms(250);
         info!("off!");
         led_pin.set_low().unwrap();
-        delay.delay_ms(500);
+        delay.delay_ms(750);
     }
 }
 
