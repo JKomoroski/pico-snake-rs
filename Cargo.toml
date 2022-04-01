@@ -1,8 +1,8 @@
 [package]
-authors = ["the rp-rs team"]
+authors = ["Jared Komoroski"]
 edition = "2018"
 readme = "README.md"
-name = "rp2040-project-template"
+name = "pico-snake-rs"
 version = "0.1.0"
 resolver = "2"
 
@@ -22,6 +22,9 @@ rp-pico = "0.3.0"
 display-interface-spi = "0.4.1"
 embedded-graphics = "0.7.1"
 st7789 = "0.6.1"
+
+heapless = "0.7.10"
+nb = "1.0"
 
 # but you can use any BSP. Uncomment this to use the pro_micro_rp2040 BSP instead
 # sparkfun-pro-micro-rp2040 = "0.2.0"
