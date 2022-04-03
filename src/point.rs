@@ -33,5 +33,11 @@ impl Point {
             (value as i16 + by) as u16
         }
     }
+
 }
 
+impl From<Point> for embedded_graphics::geometry::Point {
+    fn from(p: Point) -> Self {
+        embedded_graphics::geometry::Point::new(p.x.into(), p.y.into())
+    }
+}
