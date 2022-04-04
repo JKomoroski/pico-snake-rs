@@ -29,7 +29,7 @@ pub fn accept_input(
 ) -> Result<InputEvent, GameError> {
     while input_timer.wait().is_err() {
         if state.a_btn.is_low()? && !state.input_state.a_active {
-            state.input_state.a_active = true;
+            state.input_state.a_active = !state.input_state.a_active;
             // input_buffer.enqueue(InputEvent::DownA)?
             return Ok(InputEvent::DownA);
         } else if state.a_btn.is_high()? && state.input_state.a_active {

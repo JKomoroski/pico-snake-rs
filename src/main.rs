@@ -4,33 +4,33 @@
 #![no_std]
 #![no_main]
 
-mod snake;
 mod direction;
 mod game;
-mod point;
 mod input;
+mod point;
+mod snake;
 
-use core::convert::Infallible;
-use bsp::hal::gpio::bank0::{Gpio16, Gpio17, Gpio0};
+use crate::direction::Direction;
+use crate::game::*;
+use crate::input::*;
+use bsp::hal::gpio::bank0::{Gpio0, Gpio16, Gpio17};
 use bsp::pac::SPI0;
-use cortex_m_rt::entry;
-use cortex_m::prelude::*;
+use core::convert::Infallible;
 use cortex_m::delay::Delay;
+use cortex_m::prelude::*;
+use cortex_m_rt::entry;
 use defmt::*;
 use defmt_rtt as _;
 use display_interface_spi::SPIInterface;
 use embedded_graphics::pixelcolor::Rgb565;
-use embedded_graphics::primitives::{Circle, PrimitiveStyle};
+use embedded_graphics::primitives::{Circle, PrimitiveStyle, Rectangle};
 use embedded_graphics::{image::*, prelude::*};
-use embedded_hal::digital::v2::{ToggleableOutputPin, OutputPin};
-use embedded_time::fixed_point::FixedPoint;
+use embedded_hal::digital::v2::{OutputPin, ToggleableOutputPin};
 use embedded_time::duration::Extensions;
+use embedded_time::fixed_point::FixedPoint;
 use embedded_time::rate::Extensions as RateExtensions;
 use panic_probe as _;
 use st7789::{Orientation, ST7789};
-use crate::direction::Direction;
-use crate::game::*;
-use crate::input::*;
 // Provide an alias for our BSP so we can switch targets quickly.
 // Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
 use rp_pico as bsp;
@@ -38,16 +38,19 @@ use rp_pico as bsp;
 
 use bsp::hal::{
     clocks::{init_clocks_and_plls, Clock as HalClock},
+    gpio::{
+        pin::bank0::{Gpio12, Gpio13, Gpio14, Gpio15},
+        {FunctionSpi, Pin, PullUpInput},
+    },
     pac,
     sio::Sio,
-    watchdog::Watchdog,
-    gpio::{
-        {FunctionSpi, Pin, PullUpInput},
-        pin::bank0::{Gpio12, Gpio13, Gpio14, Gpio15},
-    },
     spi::Spi,
+    watchdog::Watchdog,
 };
 // use rp_pico::hal::gpio::Pin;
+
+const ORIGIN: embedded_graphics::geometry::Point = Point::new(40, 52);
+const BLOCK_SIZE: embedded_graphics::geometry::Point = Point::new(10, 10);
 
 #[entry]
 fn main() -> ! {
@@ -107,14 +110,17 @@ fn main() -> ! {
     display.clear(Rgb565::BLACK).unwrap();
 
     // Draw Loading Screen -- Ferris
-    Image::new(&ImageRawLE::new(include_bytes!("../ferris.raw"), 86), Point::new(120, 67))
-        .draw(&mut display)
-        .unwrap();
-    
+    Image::new(
+        &ImageRawLE::new(include_bytes!("../ferris.raw"), 86),
+        Point::new(120, 67),
+    )
+    .draw(&mut display)
+    .unwrap();
+
     // endregion
 
     let game_timer = bsp::hal::Timer::new(pac.TIMER, &mut pac.RESETS);
-    
+
     // region Setup Outputs
     //High == On
     let mut led_pin = pins.led.into_push_pull_output();
@@ -123,7 +129,7 @@ fn main() -> ! {
     let mut r_pin = pins.gpio6.into_push_pull_output();
     let mut g_pin = pins.gpio7.into_push_pull_output();
     let mut b_pin = pins.gpio8.into_push_pull_output();
-    
+
     r_pin.set_high().unwrap();
     g_pin.set_high().unwrap();
     b_pin.set_high().unwrap();
@@ -138,14 +144,13 @@ fn main() -> ! {
     let y_btn: Pin<Gpio15, PullUpInput> = pins.gpio15.into_mode();
     // endregion
 
-
     let mut state = Inputs {
         input_state: InputState {
-                a_active: false,
-                b_active: false,
-                x_active: false,
-                y_active: false,
-            },
+            a_active: false,
+            b_active: false,
+            x_active: false,
+            y_active: false,
+        },
         a_btn: a_btn,
         b_btn: b_btn,
         x_btn: x_btn,
@@ -154,26 +159,34 @@ fn main() -> ! {
     };
     // Handle Input Loop
 
-    let mut game = Game::new(16, 16, 0);
+    let mut game = Game::new(23, 13, 0);
 
     state.delay.delay_ms(1500);
     display.clear(Rgb565::BLACK).unwrap();
+
+    //draw boarder
+    Rectangle::new(ORIGIN + Point::new(2, 2), Size::new(23 * 10, 13 * 10))
+        .into_styled(PrimitiveStyle::with_stroke(Rgb565::WHITE, 2))
+        .draw(&mut display)
+        .unwrap();
 
     loop {
         let mut input_timer = game_timer.count_down();
         input_timer.start(750.milliseconds());
 
         let mut game_tick = game_timer.count_down();
-        game_tick.start(750 .milliseconds());
-        
-        
-        match accept_input(&mut state, &mut input_timer).unwrap() {
-            InputEvent::DownA => game.tick(Command::Turn(Direction::Left)),
-            InputEvent::DownB => game.tick(Command::Turn(Direction::Down)),
-            InputEvent::DownX => game.tick(Command::Turn(Direction::Up)),
-            InputEvent::DownY => game.done = true, //game.tick(Command::Turn(Direction::Right)),
-            _ => {},
-        }
+        game_tick.start(750.milliseconds());
+
+        let command = match accept_input(&mut state, &mut input_timer).unwrap() {
+            InputEvent::DownA => Command::Turn(Direction::Left),
+            InputEvent::DownB => Command::Turn(Direction::Down),
+            InputEvent::DownX => Command::Turn(Direction::Up),
+            InputEvent::DownY => Command::Turn(Direction::Right),
+            _ => Command::Turn(game.snake.get_direction()),
+        };
+
+        game.tick(command);
+
         let _ = nb::block!(game_tick.wait());
 
         if game.done {
@@ -187,30 +200,71 @@ fn main() -> ! {
             render_game(&game, &mut display).unwrap();
             led_pin.toggle().unwrap();
         }
-
-        
-
-
     }
 }
 
-fn render_game(game: &Game, display: &mut ST7789<SPIInterface<bsp::hal::Spi<bsp::hal::spi::Enabled, SPI0, 8_u8>, bsp::hal::gpio::Pin<Gpio16, bsp::hal::gpio::Output<bsp::hal::gpio::PushPull>>, bsp::hal::gpio::Pin<Gpio17, bsp::hal::gpio::Output<bsp::hal::gpio::PushPull>>>, bsp::hal::gpio::Pin<Gpio0, bsp::hal::gpio::Output<bsp::hal::gpio::PushPull>>>) -> Result<(), GameError> {
-    display.clear(Rgb565::BLACK)?;
-    match game.food {
-        Some(f) => Circle::new(Point::new(120, 67), 50).into_styled(PrimitiveStyle::with_stroke(Rgb565::WHITE, 1)).draw(display)?,
-        None => {},
-    }
+fn render_game(
+    game: &Game,
+    display: &mut ST7789<
+        SPIInterface<
+            bsp::hal::Spi<bsp::hal::spi::Enabled, SPI0, 8_u8>,
+            bsp::hal::gpio::Pin<Gpio16, bsp::hal::gpio::Output<bsp::hal::gpio::PushPull>>,
+            bsp::hal::gpio::Pin<Gpio17, bsp::hal::gpio::Output<bsp::hal::gpio::PushPull>>,
+        >,
+        bsp::hal::gpio::Pin<Gpio0, bsp::hal::gpio::Output<bsp::hal::gpio::PushPull>>,
+    >,
+) -> Result<(), GameError> {
+
+    // display.clear(Rgb565::BLACK)?;
+    let first = ORIGIN + (*game.snake.get_body_points().iter().next().unwrap() * BLOCK_SIZE);
+    Circle::new(first, 10)
+        .into_styled(PrimitiveStyle::with_stroke(Rgb565::BLACK, 1))
+        .draw(display)?;
+
     
+
+    let last = ORIGIN + (*game.snake.get_body_points().iter().last().unwrap() * BLOCK_SIZE);
+    
+
+    Rectangle::new(Point::new(last.x + 10, last.y), Size::new(10, 10))
+        .into_styled(PrimitiveStyle::with_stroke(Rgb565::BLACK, 1))
+        .draw(display)
+        .unwrap();
+    Rectangle::new(Point::new(last.x - 10, last.y), Size::new(10, 10))
+        .into_styled(PrimitiveStyle::with_stroke(Rgb565::BLACK, 1))
+        .draw(display)
+        .unwrap();
+    Rectangle::new(Point::new(last.x, last.y + 10), Size::new(10, 10))
+        .into_styled(PrimitiveStyle::with_stroke(Rgb565::BLACK, 1))
+        .draw(display)
+        .unwrap();
+    Rectangle::new(Point::new(last.x, last.y - 10), Size::new(10, 10))
+        .into_styled(PrimitiveStyle::with_stroke(Rgb565::BLACK, 1))
+        .draw(display)
+        .unwrap();
+    
+    match game.food {
+        Some(f) => Circle::new( ORIGIN + (f * BLOCK_SIZE), 10)
+                                .into_styled(PrimitiveStyle::with_stroke(Rgb565::WHITE, 1))
+                                .draw(display)?,
+        None => {}
+    }
+
+    game.snake.get_body_points()
+        .iter()
+        .map(|p| ORIGIN + (*p * BLOCK_SIZE))
+        .map(|p| Rectangle::new(p, Size::new(10, 10)))
+        .for_each(|c| c.into_styled(PrimitiveStyle::with_stroke(Rgb565::WHITE, 1)).draw(display).unwrap());
+
 
     // Image::new(&ImageRawLE::new(include_bytes!("../ferris.raw"), 86), Point::new(120, 67))
     //     .draw(display)?;
-    
-    Ok(())
 
+    Ok(())
 }
 
 #[derive(Debug)]
-pub enum GameError {   
+pub enum GameError {
     InputPin,
     Infallible, // God is dead
     UnableToQueue(InputEvent),
@@ -229,7 +283,7 @@ impl From<InputEvent> for GameError {
     }
 }
 
-impl <PinE> From<st7789::Error<PinE>> for GameError {
+impl<PinE> From<st7789::Error<PinE>> for GameError {
     fn from(err: st7789::Error<PinE>) -> GameError {
         GameError::DisplayError
     }
